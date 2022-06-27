@@ -142,14 +142,15 @@ ELEMENTS = []
 
 # This is the class, which stores the properties for one element.
 class ElementProp(object):
-    __slots__ = ('number', 'name', 'short_name', 'color', 'radii', 'radii_ionic')
-    def __init__(self, number, name, short_name, color, radii, radii_ionic):
+    __slots__ = ('number', 'name', 'short_name', 'color', 'radii', 'radii_ionic', 'BSDF')
+    def __init__(self, number, name, short_name, color, radii, radii_ionic, BSDF):
         self.number = number
         self.name = name
         self.short_name = short_name
         self.color = color
         self.radii = radii
         self.radii_ionic = radii_ionic
+        self.BSDF = BSDF
 
 # This is the class, which stores the properties of one atom.
 class AtomProp(object):
@@ -189,7 +190,7 @@ def read_elements():
         radii_ionic = []
 
         li = ElementProp(item[0],item[1],item[2],item[3],
-                                     radii,radii_ionic)
+                                     radii,radii_ionic, item[-1])
         ELEMENTS.append(li)
 
 
@@ -291,6 +292,7 @@ def read_pdb_file(filepath_pdb, radiustype):
                     # pre-defined (0), atomic (1) or van der Waals (2)
                     radius = float(element.radii[int(radiustype)])
                     color = element.color
+                    BSDF = element.BSDF
                     FLAG_FOUND = True
                     break
 
