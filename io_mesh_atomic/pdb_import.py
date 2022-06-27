@@ -1334,6 +1334,8 @@ def import_pdb(Ball_type,
         material.use_nodes = True
         mat_P_BSDF = material.node_tree.nodes['Principled BSDF']
         mat_P_BSDF.inputs['Base Color'].default_value = atom_type[2]
+        mat_P_BSDF.inputs['Metallic'].default_value = 0.0
+        mat_P_BSDF.inputs['Roughness'].default_value = 0.1
         material.name = atom_type[0]
         atom_material_list.append(material)
 
