@@ -16,7 +16,7 @@ from copy import copy
 #
 # 1, "Hydrogen", "H", [0.0,0.0,1.0], 0.32, 0.32, 0.32 , -1 , 1.54   means
 #
-# No., name, short name, color, radius (used), radius (covalent), radius (atomic),
+# No., name, short name, color, radius (used), radius (covalent), radius (atomic), BSDF_roughness, BSDF_metallic
 #
 # charge state 1, radius (ionic) 1, charge state 2, radius (ionic) 2, ... all
 # charge states for any atom are listed, if existing.
