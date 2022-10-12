@@ -11,6 +11,7 @@ from .gltf2_blender_material import BlenderMaterial
 from ...io.com.gltf2_io_debug import print_console
 from .gltf2_io_draco_compression_extension import decode_primitive
 from io_scene_gltf2.io.imp.gltf2_io_user_extensions import import_user_extensions
+from ..com.gltf2_blender_ui import gltf2_KHR_materials_variants_primitive, gltf2_KHR_materials_variants_variant, gltf2_KHR_materials_variants_default_material
 
 
 class BlenderMesh():
@@ -97,11 +98,7 @@ def do_primitives(gltf, mesh_idx, skin_idx, mesh, ob):
         while i < COLOR_MAX and ('COLOR_%d' % i) in prim.attributes: i += 1
         num_cols = max(i, num_cols)
 
-    num_shapekeys = 0
-    if len(pymesh.primitives) > 0: # Empty primitive tab is not allowed, but some invalid files...
-        for morph_i, _ in enumerate(pymesh.primitives[0].targets or []):
-            if pymesh.shapekey_names[morph_i] is not None:
-                num_shapekeys += 1
+    num_shapekeys = sum(sk_name is not None for sk_name in pymesh.shapekey_names)
 
     # -------------
     # We'll process all the primitives gathering arrays to feed into the
@@ -189,12 +186,17 @@ def do_primitives(gltf, mesh_idx, skin_idx, mesh, ob):
             vert_joints[i] = np.concatenate((vert_joints[i], js))
             vert_weights[i] = np.concatenate((vert_weights[i], ws))
 
-        for morph_i, target in enumerate(prim.targets or []):
-            if pymesh.shapekey_names[morph_i] is None:
+        sk_i = 0
+        for sk, sk_name in enumerate(pymesh.shapekey_names):
+            if sk_name is None:
                 continue
-            morph_vs = BinaryData.decode_accessor(gltf, target['POSITION'], cache=True)
-            morph_vs = morph_vs[unique_indices]
-            sk_vert_locs[morph_i] = np.concatenate((sk_vert_locs[morph_i], morph_vs))
+            if prim.targets and 'POSITION' in prim.targets[sk]:
+                morph_vs = BinaryData.decode_accessor(gltf, prim.targets[sk]['POSITION'], cache=True)
+                morph_vs = morph_vs[unique_indices]
+            else:
+                morph_vs = np.zeros((len(unique_indices), 3), dtype=np.float32)
+            sk_vert_locs[sk_i] = np.concatenate((sk_vert_locs[sk_i], morph_vs))
+            sk_i += 1
 
         # inv_indices are the indices into the verts just for this prim;
         # calculate indices into the overall verts array
@@ -343,12 +345,19 @@ def do_primitives(gltf, mesh_idx, skin_idx, mesh, ob):
     # ----
     # Assign materials to faces
     has_materials = any(prim.material is not None for prim in pymesh.primitives)
+    # Even if no primitive have material, we need to create slots if some primitives have some variant
+    if has_materials is False:
+        has_materials = any(prim.extensions is not None and 'KHR_materials_variants' in prim.extensions.keys() for prim in pymesh.primitives)
+
+    has_variant = prim.extensions is not None and 'KHR_materials_variants' in prim.extensions.keys() \
+                and 'mappings' in prim.extensions['KHR_materials_variants'].keys()
+
     if has_materials:
         material_indices = np.empty(num_faces, dtype=np.uint32)
         empty_material_slot_index = None
         f = 0
 
-        for prim in pymesh.primitives:
+        for idx_prim, prim in enumerate(pymesh.primitives):
             if prim.material is not None:
                 # Get the material
                 pymaterial = gltf.data.materials[prim.material]
@@ -358,18 +367,54 @@ def do_primitives(gltf, mesh_idx, skin_idx, mesh, ob):
                 material_name = pymaterial.blender_material[vertex_color]
 
                 # Put material in slot (if not there)
-                if material_name not in mesh.materials:
+                if not has_variant:
+                    if material_name not in mesh.materials:
+                        mesh.materials.append(bpy.data.materials[material_name])
+                    material_index = mesh.materials.find(material_name)
+                else:
+                    # In case of variant, do not merge slots
                     mesh.materials.append(bpy.data.materials[material_name])
-                material_index = mesh.materials.find(material_name)
+                    material_index = len(mesh.materials) - 1
             else:
-                if empty_material_slot_index is None:
+                if not has_variant:
+                    if empty_material_slot_index is None:
+                        mesh.materials.append(None)
+                        empty_material_slot_index = len(mesh.materials) - 1
+                    material_index = empty_material_slot_index
+                else:
+                    # In case of variant, do not merge slots
                     mesh.materials.append(None)
-                    empty_material_slot_index = len(mesh.materials) - 1
-                material_index = empty_material_slot_index
+                    material_index = len(mesh.materials) - 1
 
             material_indices[f:f + prim.num_faces].fill(material_index)
 
             f += prim.num_faces
+
+            # Manage variants
+            if has_variant:
+
+                # Store default material
+                default_mat = mesh.gltf2_variant_default_materials.add()
+                default_mat.material_slot_index = material_index
+                default_mat.default_material = bpy.data.materials[material_name] if prim.material is not None else None
+
+                for mapping in prim.extensions['KHR_materials_variants']['mappings']:
+                    # Store, for each variant, the material link to this primitive
+                    
+                    variant_primitive = mesh.gltf2_variant_mesh_data.add()
+                    variant_primitive.material_slot_index = material_index
+                    if 'material' not in mapping.keys():
+                        # Default material
+                        variant_primitive.material = None
+                    else:
+                        vertex_color = 'COLOR_0' if 'COLOR_0' in prim.attributes else None
+                        if str(mapping['material']) + str(vertex_color) not in gltf.variant_mapping.keys():
+                            BlenderMaterial.create(gltf, mapping['material'], vertex_color)
+                        variant_primitive.material = gltf.variant_mapping[str(mapping['material']) + str(vertex_color)]
+
+                    for variant in mapping['variants']:
+                        vari = variant_primitive.variants.add()
+                        vari.variant.variant_idx = variant
 
         mesh.polygons.foreach_set('material_index', material_indices)
 
