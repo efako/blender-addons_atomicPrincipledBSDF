@@ -6,6 +6,7 @@ from math import cos, sin, tan, atan2, pi, ceil
 
 import bpy
 from mathutils import Vector, Matrix
+from bpy.app.translations import pgettext_tip as tip_
 
 from . import svg_colors
 from .svg_util import (units,
@@ -161,7 +162,7 @@ def SVGParseTransform(transform):
 
         proc = SVGTransforms.get(func)
         if proc is None:
-            raise Exception('Unknown trasnform function: ' + func)
+            raise Exception('Unknown transform function: ' + func)
 
         m = m @ proc(params)
 
@@ -964,16 +965,17 @@ class SVGGeometry:
         Push transformation matrix
         """
 
-        self._context['transform'].append(matrix)
-        self._context['matrix'] = self._context['matrix'] @ matrix
+        current_matrix = self._context['matrix']
+        self._context['matrix_stack'].append(current_matrix)
+        self._context['matrix'] = current_matrix @ matrix
 
     def _popMatrix(self):
         """
         Pop transformation matrix
         """
 
-        matrix = self._context['transform'].pop()
-        self._context['matrix'] = self._context['matrix'] @ matrix.inverted()
+        old_matrix = self._context['matrix_stack'].pop()
+        self._context['matrix'] = old_matrix
 
     def _pushStyle(self, style):
         """
@@ -1822,9 +1824,9 @@ class SVGLoader(SVGGeometryContainer):
         rect = (0, 0)
 
         self._context = {'defines': {},
-                         'transform': [],
                          'rects': [rect],
                          'rect': rect,
+                         'matrix_stack': [],
                          'matrix': m,
                          'materials': {},
                          'styles': [None],
@@ -1891,7 +1893,7 @@ def load(operator, context, filepath=""):
         import traceback
         traceback.print_exc()
 
-        operator.report({'WARNING'}, "Unable to parse XML, %s:%s for file %r" % (type(e).__name__, e, filepath))
+        operator.report({'WARNING'}, tip_("Unable to parse XML, %s:%s for file %r") % (type(e).__name__, e, filepath))
         return {'CANCELLED'}
 
     return {'FINISHED'}
